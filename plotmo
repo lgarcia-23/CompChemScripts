@@ -1,0 +1,187 @@
+#!/bin/bash
+# Purpose: Molecule structure rendering
+# Adapted from Robin Grotjahn's `plotmo` script
+#
+# Dependencies:
+#   + vmd
+#   + imagemagick (convert)
+
+################################################################### Help display
+help() {
+    local script_name=$(basename "$0")  
+    echo
+    echo "Usage: $script_name [options...] file"
+    echo
+    echo "Generate visualizations using VMD."
+    echo "Default behavior will plot MOs and generate an image"
+    echo
+    echo "Optional arguments:"
+    echo "-h, --help                    Display this message again :3"
+    echo "-v, --view                    Display figure without generating image"
+    echo "-t, --trans                   Make isosurface transparent"
+    echo "-z, --zoom    <value>         Set zoom factor (default: 0.4)"
+    echo "-l, --lowres                  Use 1000x1000 px resolution"
+    echo "-r, --rotate  <axis><value>   Rotate around an axis (can be list)"
+    echo "-s, --struct                  Plot the structure only"
+    echo "-d, --dens                    Plot the spin density"
+    echo "-i, --iso     <value>         Isosurface contour value"
+    echo
+    echo "Example:"
+    echo "  $script_name -r x45,y10 -v -z 0.9 foo.xyz"
+    echo
+}
+
+########################################################### Initialize variables
+rotations=""
+zoom="0.4"
+iso="0.03"
+lowres=0
+trans=0
+view=0
+dens=0
+mos=1
+
+#################################################################### Parse flags
+while :; do
+  case $1 in
+    -h|--help)
+      help
+      exit ;;
+    -v|--view)
+      view=1 ;;
+    -z|--zoom)
+      zoom=$2
+      shift ;;
+    -l|--lowres)
+      lowres=1 ;;
+    -r|--rotate)
+      rotations=$2
+      shift ;;
+    -d|--dens)
+      dens=1 ;;
+    -s|--struct)
+      mos=0 ;;
+    -i|--iso)
+      iso=$2
+      shift ;;
+    -t|--trans)
+      trans=1 ;;
+    --)
+      shift
+      break ;;
+    -?*)
+      printf 'WARN: Unknown option (ignoring): %s\n' "$1" >&2 ;;
+    *)
+      break ;;
+  esac
+  shift
+done
+
+############################################################### Parse input file
+file=$1
+filename="${file%.*}"
+ext="$(echo $file | cut -d '.' -f 2)" # I'm sure I don't need to do it this way
+if [ "$ext" == "cub" ] ; then
+  ext="cube"
+fi
+
+# WRITE ENERGIES TO FILENAME :3 will do when not lazy lol
+# gs=$(awk '/Energy/ {print $NF}' $file)
+
+############################################################## Graphics settings
+cat > $filename.vmd << EOF
+mol new {$(pwd)/$file} type {$ext} first 0 last -1 step 1 waitfor 1 volsets {0 }
+
+display projection Perspective   # can also be Orthographic
+display depthcue off
+display antialias on
+axes location Off
+light 2 on
+color Display Background white
+
+mol representation CPK 0.800000 0.250000 10.000000 10.000000
+color Name O red
+color Name H white
+color Name C gray
+color Name A green
+color Name N blue
+color Name S yellow
+color Name I ochre
+color Name U magenta
+color Name L mauve
+color Name T iceblue
+color Name J orange
+mol addrep top
+
+scale by $zoom
+EOF
+
+if [ "$trans" == "1" ] ; then
+  echo "mol material Transparent" >> $filename.vmd 
+fi
+
+###################################################################### Rotations
+i=1
+iter=$(echo $rotations | grep -o "," | wc -l)
+
+while [ $i -le $((iter+1)) ]; do
+  rot=$(echo $rotations | cut -d "," -f $i)
+  axis=$(echo $rot | cut -c 1)
+  deg=$(echo $rot | cut --complement -c 1)
+  echo "rotate $axis by $deg" >> $filename.vmd
+  ((i++))
+done
+
+################################################################### Spin Density
+if [ "$dens" == "1" ] ; then
+  echo "mol representation Isosurface $iso 0 0 0 1 1" >> $filename.vmd
+  echo "mol color ColorID 0" >> $filename.vmd
+  echo "mol addrep top" >> $filename.vmd
+fi
+
+if [ "$mos" == "1" ] ; then
+  echo "mol representation Isosurface $iso 0 0 0 1 1" >> $filename.vmd
+  echo "mol color ColorID 0" >> $filename.vmd
+  echo "mol addrep top" >> $filename.vmd
+
+  echo "mol representation Isosurface -$iso 0 0 0 1 1" >> $filename.vmd
+  echo "mol color ColorID 1" >> $filename.vmd
+  echo "mol addrep top" >> $filename.vmd
+fi
+
+########################################################## Viewing and rendering
+if [ "$view" == "1" ] ; then
+    echo "display resize 1000 1000" >> $filename.vmd
+    vmd -e $filename.vmd
+    exit 0
+fi
+
+
+if [ "$lowres" == "1" ] ; then
+  echo "display resize 1000 1000" >>$filename.vmd
+else
+  echo "display resize 4000 4000" >>$filename.vmd
+fi
+
+
+cat >> $filename.vmd << EOF
+render TachyonInternal $filename.png -format PNG -antialias 8 -tachyonopts "-stereo off -quality 4"
+
+exit
+quit 
+EOF
+
+vmd -dispdev text -e $filename.vmd
+
+# wtf does this do lol
+# oldfilename=$filename
+# newfilename=${filename}_${eV}eV
+# mv ${filename}.png ${newfilename}.png
+# filename=$newfilename
+
+mv ${filename}.png ${filename}.tga 
+convert ${filename}.tga -quality 100 ${filename}.jpg
+rm ${filename}.tga
+
+# rm $oldfilename.vmd
+rm $filename.vmd
