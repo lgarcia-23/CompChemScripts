@@ -1,0 +1,70 @@
+#!/bin/bash
+# Purpose: Display distances
+#
+
+################################################################### Help display
+help() {
+    local script_name=$(basename "$0")  
+    echo
+    echo "Usage: $script_name [options...] atom_index"
+    echo
+    echo "Optional arguments:"
+    echo "-h, --help                    Display this message again :3"
+    echo
+}
+
+#################################################################### Parse flags
+while :; do
+  case $1 in
+    -h|--help)
+      help
+      exit ;;
+    --)
+      shift
+      break ;;
+    -?*)
+      printf 'WARN: Unknown option (ignoring): %s\n' "$1" >&2 ;;
+    *)
+      break ;;
+  esac
+  shift
+done
+
+atom_index=$1
+
+############################################################### Parse coord file
+if [ ! -f coord ] ; then
+  printf 'WARN: coord file not found ! (exiting program) \n' >&2
+  exit 1
+fi
+
+awk -v atom_index="$atom_index" '
+BEGIN {
+  i = 0;
+  FORMAT = "%2d %2s -- %2d %2s = %.f pm\n";
+  BOHR = 52.917720859;
+}
+
+/\s+([[:lower:]]{1,2}$)/ {
+  i = i + 1;
+  coord[i,1] = $1;
+  coord[i,2] = $2;
+  coord[i,3] = $3;
+  atom[i] = $4;
+}
+
+END {
+for (j = 1; j <= i; j++) {
+  dist = distance(atom_index,j);
+  printf(FORMAT,atom_index,atom[atom_index],j,atom[j],dist * BOHR);
+}
+}
+
+function distance(atom1,atom2)
+{
+  dx = coord[atom1,1] - coord[atom2,1];
+  dy = coord[atom1,2] - coord[atom2,2];
+  dz = coord[atom1,3] - coord[atom2,3];
+  return sqrt(dx * dx + dy * dy + dz * dz)
+}
+' coord
