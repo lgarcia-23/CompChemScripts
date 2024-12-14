@@ -1,0 +1,81 @@
+#!/bin/bash
+# Purpose: Sort orbitals by s/p/d/f character
+# Requires a Mulliken population analysis Turbomole output file
+#
+
+################################################################### Help display
+help() {
+    local script_name=$(basename "$0")  
+    echo
+    echo "Usage: $script_name [options...] file"
+    echo
+    echo "Optional arguments:"
+    echo "-h, --help                Display this message again :3"
+    echo "-s, --sort-by   <char>    Sort by s/p/d/f character (Default: s)"
+    echo
+}
+
+#################################################################### Parse flags
+character="s"
+while :; do
+  case $1 in
+    -h|--help)
+      help
+      exit ;;
+    -s|--sort-by)
+      character=$2
+      shift ;;
+    --)
+      shift
+      break ;;
+    -?*)
+      printf 'WARN: Unknown option (ignoring): %s\n' "$1" >&2 ;;
+    *)
+      break ;;
+  esac
+  shift
+done
+
+############################################################# Parse orbital file
+output_file=$1
+
+case $character in
+  s)
+    character=3 ;;
+  p)
+    character=4 ;;
+  d)
+    character=5 ;;
+  f)
+    character=6 ;;
+  g)
+    # character=7 ;; Uncomment if you actually meant to use this
+    printf 'We both know this is silly (ignoring :p) \n' >&2
+    exit ;;
+esac
+
+awk -v sort_by=$character '
+BEGIN {
+  i = 1;
+  j = 1;
+  PROCINFO["sorted_in"] = "@val_type_desc";
+}
+
+/^\s+[[:digit:]]{1,3}[[:lower:]]{1,2}\s{4,5}(\-{0,1})[[:digit:]]/ {
+  unsorted[i-1] = $sort_by;
+  i++;
+}
+
+/(^\s+{2,3})([[:digit:]]{1,3})[[:lower:]]/ {
+  orbitals[j-1] = $0;
+  j++;
+}
+
+END {
+n = asorti(unsorted,s_indices,PROCINFO["sorted_in"])
+printf("atomic populations from total density:")
+for (i = 1; i <= n; ++i) {
+  j = 2 * s_indices[i];
+  printf("%s\n%s\n\n", orbitals[j-1], orbitals[j])
+}
+}' $output_file
